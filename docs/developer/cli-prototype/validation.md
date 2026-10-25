@@ -4,7 +4,9 @@
 
 ## 当前命名版本
 
-验证日期：2026-10-25。当前 `gesac` 源码由原 `gesa` 原型基线 `e33dc9c` 更名而来，并隔离了凭据记录命名空间。本机 Linux 已完成下列验证；Windows 结果以本仓库 CI 为准。
+验证日期：2026-10-25。当前 `gesac` 源码由原 `gesa` 原型基线 `e33dc9c` 更名而来，并隔离了凭据记录命名空间。本机 Linux 和 GitHub Actions 已完成下列验证。
+
+源码提交：`020ddc03c974b4ef213576b09a954537565ab78b`。[双平台 CI 与发行构建产物](https://github.com/EateralSpirial/General-Enterprise-Service-Architecture-Core/actions/runs/40192220732)。
 
 | 当前验证项 | 状态 |
 |---|---|
@@ -12,7 +14,7 @@
 | Linux release 构建 | 通过；产物 `gesac` 与 `gesac-launcher` |
 | Python 中心与真实 Redis 测试 | 21 项通过，0 跳过；Redis 7.4.2 |
 | `gesac` CLI 端到端测试 | 10 组场景通过，0.1.0 → 0.1.1 → 0.1.2 |
-| Windows 构建、DPAPI、ACL 与安装测试 | 待本仓库 GitHub Actions 运行 |
+| Windows 构建、DPAPI、ACL 与安装测试 | 26 项单元测试、1 项安装测试通过；release 构建通过 |
 
 ## 原 `gesa` 原型的历史记录
 

@@ -872,6 +872,25 @@ pub fn verify(home: &Path) -> Result<Value> {
 }
 
 /// Stable launcher entrypoint. Never retries a command that has begun execution.
+pub fn selected_core(home: &Path) -> Result<PathBuf> {
+    let state = load_state(home)?;
+    let selected = state
+        .pending
+        .as_ref()
+        .map(|p| &p.from)
+        .unwrap_or(&state.active);
+    let result = [
+        Some(selected),
+        state.previous.as_ref(),
+        Some(&state.bootstrap),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|slot| verify_slot(home, slot).ok())
+    .context("no verified core available");
+    result
+}
+
 pub fn launcher_main() -> Result<i32> {
     let home = crate::config::home_dir()?;
     let mut state = load_state(&home)?;

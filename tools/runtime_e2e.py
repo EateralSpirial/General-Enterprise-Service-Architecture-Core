@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import json
 import os
+import signal
 from pathlib import Path
 import socket
 import sqlite3
@@ -42,13 +43,13 @@ def main():
         processes = []
 
         def spawn(command, **kwargs):
-            proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs)
+            proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, **kwargs)
             processes.append(proc)
             return proc
 
         def stop(proc):
             if proc.poll() is None:
-                proc.terminate()
+                os.killpg(proc.pid, signal.SIGTERM)
                 try:
                     proc.wait(10)
                 except subprocess.TimeoutExpired:
@@ -200,20 +201,40 @@ def main():
         passed.append("unknown execution reconciles without replay")
 
         # The real service host also supplies the independent launcher's self-update protocol.
-        artifact_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
+        self_candidate = root / "self-candidate"
+        self_candidate.write_bytes(binary.read_bytes() + b"\0GESAC isolated signed candidate\n")
+        self_candidate.chmod(0o700)
+        artifact_hash = hashlib.sha256(self_candidate.read_bytes()).hexdigest()
         self_release = {"schema": 1, "sequence": 1, "version": "0.2.0", "channel": "stable", "target": "linux-x86_64",
-                        "artifact": "/artifacts/" + artifact_hash, "sha256": artifact_hash, "size": binary.stat().st_size,
+                        "artifact": "/artifacts/" + artifact_hash, "sha256": artifact_hash, "size": self_candidate.stat().st_size,
                         "expires_at": int(time.time()) + 3600, "protocol": 1, "contract_epoch": 1, "supports_contracts": [1],
                         "iteration": {"candidate_id": "runtime-self-update", "source_revision": "a" * 40, "artifact_sha256": artifact_hash,
                                       "change_summary": "isolated self-update fixture", "risk": "low", "tests": [{"name": "runtime", "passed": True, "evidence_sha256": "b" * 64}],
                                       "approval": {"decision": "approved", "actor": "test", "policy": "automatic-low-risk"},
                                       "rollback": "retained bootstrap", "migration": {"kind": "none", "reversible": True}, "protected_core_changed": False}}
-        run("server", "publish-self", "--root", hosts[0][0], "--file", write(root / "self-release.json", self_release), "--binary", binary)
+        run("server", "publish-self", "--root", hosts[0][0], "--file", write(root / "self-release.json", self_release), "--binary", self_candidate)
         run("node", "self-source", "--profile", "host0", home=home)
         assert run("update", home=home)["updated"]
         assert run("verify", home=home)["verified"]
         assert run("update", home=home)["reason"] == "already_current"
         passed.append("service-host self-update, offline verification and duplicate suppression")
+
+        stop(proc)
+        supervisor = spawn([str(binary), "server", "supervise", "--root", str(hosts[0][0])], env={**os.environ, "GESAC_HOME": str(home)})
+        wait(url + "/health")
+        children = subprocess.check_output(["ps", "--ppid", str(supervisor.pid), "-o", "pid="], text=True).strip()
+        assert children
+        run("rollback", home=home)
+        for _ in range(80):
+            time.sleep(.1)
+            current_children = subprocess.run(["ps", "--ppid", str(supervisor.pid), "-o", "pid="], text=True, capture_output=True).stdout.strip()
+            if current_children and current_children != children:
+                break
+        assert current_children != children
+        wait(url + "/health")
+        assert len(run("node", "plans", "--profile", "host0", home=home)["plans"]) == 2
+        passed.append("service supervisor adopts self-update selection and preserves account database")
+        stop(supervisor)
 
         run("uninstall", home=home)
         for _ in range(100):

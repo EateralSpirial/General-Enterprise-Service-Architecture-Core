@@ -10,7 +10,7 @@
 
 `gesac server init --root <private-server-root> --redis-config <private-redis-config>` 从标准输入读取账号凭据 JSON；账号密码分别用 scrypt 保存摘要。可选 `otp_seed` 启用 TOTP，登录时通过当前一次性验证码。Redis 配置包含 `url`，支持本机 Unix socket。非回环监听同时配置 `--tls-cert` 和 `--tls-key`。
 
-本机管理命令包括 `server account-add`、`account-disable`、`plan`、`grant`、`publish`、`publish-self` 和 `status`。`server serve --root <root>` 运行服务。账号、会话、方案、授权、发布和更新回执属于独立 `server.sqlite`。
+本机管理命令包括 `server account-add`、`account-disable`、`plan`、`grant`、`publish`、`publish-self` 和 `status`。`server serve --root <root>` 运行服务；配置独立自更新 Home 后，`server supervise --root <root>` 会在已提交的核心版本切换后交接服务子进程。账号、会话、方案、授权、发布和更新回执属于独立 `server.sqlite`。
 
 节点通过 `GESAC_HOME` 选择自己的私有目录：
 

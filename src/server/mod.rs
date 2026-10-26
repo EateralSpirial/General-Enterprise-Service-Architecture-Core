@@ -606,17 +606,87 @@ pub fn serve(root: &Path) -> Result<()> {
         .block_on(async move {
             if let (Some(cert), Some(key)) = (cert, key) {
                 let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key).await?;
+                let handle = axum_server::Handle::new();
+                let stop = handle.clone();
+                tokio::spawn(async move {
+                    shutdown_signal().await;
+                    stop.graceful_shutdown(Some(std::time::Duration::from_secs(15)));
+                });
                 axum_server::bind_rustls(listen, tls)
+                    .handle(handle)
                     .serve(app.into_make_service())
                     .await?;
             } else {
                 let listener = tokio::net::TcpListener::bind(listen).await?;
                 axum::serve(listener, app)
-                    .with_graceful_shutdown(async {
-                        let _ = tokio::signal::ctrl_c().await;
-                    })
+                    .with_graceful_shutdown(shutdown_signal())
                     .await?;
             }
             Ok::<(), anyhow::Error>(())
         })
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        if let Ok(mut term) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            tokio::select! {_=tokio::signal::ctrl_c()=>{},_=term.recv()=>{}}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+/// The service supervisor owns only its server child; it observes committed self-update selection.
+pub fn supervise(root: &Path, home: &Path) -> Result<()> {
+    use std::{
+        process::{Command, Stdio},
+        thread,
+        time::{Duration, Instant},
+    };
+    let mut selected = crate::update::selected_core(home)?;
+    let start = |path: &Path| {
+        Command::new(path)
+            .arg("server")
+            .arg("serve")
+            .arg("--root")
+            .arg(root)
+            .stdin(Stdio::null())
+            .spawn()
+    };
+    let mut child = start(&selected)?;
+    loop {
+        thread::sleep(Duration::from_secs(2));
+        let next = crate::update::selected_core(home)?;
+        let exited = child.try_wait()?.is_some();
+        if !exited && next == selected {
+            continue;
+        }
+        if !exited {
+            #[cfg(unix)]
+            {
+                let _ = Command::new("/bin/kill")
+                    .args(["-TERM", &child.id().to_string()])
+                    .status();
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = child.kill();
+            }
+            let deadline = Instant::now() + Duration::from_secs(20);
+            while child.try_wait()?.is_none() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(100));
+            }
+            if child.try_wait()?.is_none() {
+                child.kill()?;
+            }
+            child.wait()?;
+        }
+        selected = next;
+        child = start(&selected)?;
+    }
 }

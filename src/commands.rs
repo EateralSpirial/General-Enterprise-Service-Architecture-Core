@@ -31,6 +31,10 @@ pub enum ServerCommand {
         #[arg(long)]
         root: PathBuf,
     },
+    Supervise {
+        #[arg(long)]
+        root: PathBuf,
+    },
     AccountAdd {
         #[arg(long)]
         root: PathBuf,
@@ -217,6 +221,10 @@ pub fn server(command: ServerCommand) -> Result<Value> {
         }
         ServerCommand::Serve { root } => {
             crate::server::serve(&root)?;
+            Ok(json!({"stopped":true}))
+        }
+        ServerCommand::Supervise { root } => {
+            crate::server::supervise(&root, &config::home_dir()?)?;
             Ok(json!({"stopped":true}))
         }
         ServerCommand::AccountAdd { root } => {

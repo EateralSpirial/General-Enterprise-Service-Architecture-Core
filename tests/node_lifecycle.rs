@@ -66,3 +66,26 @@ fn self_uninstall_removes_encrypted_profile_and_preserves_external_data() {
     }
     fs::remove_dir_all(parent).unwrap();
 }
+
+#[test]
+fn failed_local_service_removal_preserves_node_configuration() {
+    let root = std::env::temp_dir().join(format!("gesac-removal-held-{}", runtime::random_id()));
+    {
+        let _ = Node::open(&root).unwrap();
+    }
+    let hook = serde_json::json!({"uninstall":{"file":env!("CARGO_BIN_EXE_gesac"),"args":["__health"],"timeout_seconds":5}});
+    gesac::config::write_private_file(
+        &root.join("lifecycle.json"),
+        &serde_json::to_vec(&hook).unwrap(),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_gesac"))
+        .arg("uninstall")
+        .env("GESAC_HOME", &root)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(root.join("node.json").exists());
+    assert!(root.join("node.sqlite").exists());
+    fs::remove_dir_all(root).unwrap();
+}

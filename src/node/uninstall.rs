@@ -45,6 +45,21 @@ impl Node {
             !server_db.exists(),
             "server business state requires a separate server root"
         );
+        let lifecycle = self.root.join("lifecycle.json");
+        if lifecycle.exists() {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Lifecycle {
+                uninstall: super::lifecycle::Adapter,
+            }
+            let hook: Lifecycle =
+                serde_json::from_slice(&config::read_private_file(&lifecycle, 16384)?)?;
+            let result=hook.uninstall.call(&json!({"schema":1,"action":"uninstall","scope":"gesac-node","root":self.root,"device":self.device}))?;
+            ensure!(
+                result["status"] == "removed",
+                "owned service removal requires reconciliation; configuration retained"
+            );
+        }
         let mut st = self.db.prepare("SELECT id FROM profiles")?;
         let ids: Vec<String> = st
             .query_map([], |r| r.get(0))?

@@ -38,6 +38,7 @@ def main():
     args = parser.parse_args()
     # Redis distributions use an argv[0]-selected multicall executable behind this symlink.
     binary, redis = args.bin.resolve(), args.redis.absolute()
+    version = json.loads(subprocess.check_output([str(binary), "__health"], text=True))["version"]
     passed = []
     with tempfile.TemporaryDirectory(prefix="gesac-runtime-") as temp, contextlib.ExitStack() as stack:
         root = Path(temp)
@@ -218,7 +219,7 @@ def main():
         self_candidate.write_bytes(binary.read_bytes() + b"\0GESAC isolated signed candidate\n")
         self_candidate.chmod(0o700)
         artifact_hash = hashlib.sha256(self_candidate.read_bytes()).hexdigest()
-        self_release = {"schema": 1, "sequence": 1, "version": "0.2.0", "channel": "stable", "target": "linux-x86_64",
+        self_release = {"schema": 1, "sequence": 1, "version": version, "channel": "stable", "target": "linux-x86_64",
                         "artifact": "/artifacts/" + artifact_hash, "sha256": artifact_hash, "size": self_candidate.stat().st_size,
                         "expires_at": int(time.time()) + 3600, "protocol": 1, "contract_epoch": 1, "supports_contracts": [1],
                         "iteration": {"candidate_id": "runtime-self-update", "source_revision": "a" * 40, "artifact_sha256": artifact_hash,

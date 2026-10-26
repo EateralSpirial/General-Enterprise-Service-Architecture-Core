@@ -1,10 +1,39 @@
 # gesac
 
-**General Enterprise Service Architecture Core**（gesac）是 GESA 的 Rust 命令行核心原型，用于验证自动迭代协议与平滑自动更新。项目、Cargo 包和日常命令统一命名为 `gesac`。
+**General Enterprise Service Architecture Core**（GESAC）提供 Rust 服务主机与设备节点，用于多主机账号接入、服务方案跟踪、签名软件分发、Redis 在线协调、离线更新与恢复。PAUH Daemon 及三种操作系统 adapter 是其中一个受管理的软件对象。
 
 仓库：[EateralSpirial/General-Enterprise-Service-Architecture-Core](https://github.com/EateralSpirial/General-Enterprise-Service-Architecture-Core)。源码采用 [Apache License 2.0](LICENSE)。
 
-当前原型覆盖外部配置、账号／密码／口令登录、签名发布物、自动拉取、版本切换、失败恢复和离线校验。GESA（General Enterprise Service Architecture）的整体架构概念保留于 [架构文档](docs/README.md)。
+当前运行契约与模块边界见 [runtime.md](docs/runtime.md)，执行验证见 [IMPLEMENTATION.md](docs/IMPLEMENTATION.md)，文件及部署状态的保留规则见 [ARTIFACT_INVENTORY.md](ARTIFACT_INVENTORY.md)。GESA 的整体企业架构继续由 [架构文档](docs/README.md) 描述。
+
+## 服务主机与多主机节点
+
+`gesac server init --root <private-server-root> --redis-config <private-redis-config>` 从标准输入读取账号凭据 JSON；账号密码分别用 scrypt 保存摘要。可选 `otp_seed` 启用 TOTP，登录时通过当前一次性验证码。Redis 配置包含 `url`，支持本机 Unix socket。非回环监听同时配置 `--tls-cert` 和 `--tls-key`。
+
+本机管理命令包括 `server account-add`、`account-disable`、`plan`、`grant`、`publish`、`publish-self` 和 `status`。`server serve --root <root>` 运行服务。账号、会话、方案、授权、发布和更新回执属于独立 `server.sqlite`。
+
+节点通过 `GESAC_HOME` 选择自己的私有目录：
+
+```text
+gesac node init
+gesac node profile-add --file <host-profile.json>
+gesac node subscribe --profile <host-id> --plan <plan-id>
+gesac node register --file <local-instance.json>
+gesac node check --instance <instance-id>
+gesac node stage --instance <instance-id>
+gesac node prepare --operation <operation-id>
+gesac node apply --operation <operation-id>
+gesac node verify --instance <instance-id> --version <version>
+gesac node reconcile --operation <operation-id>
+```
+
+每个主机 profile 包含独立 `id`、服务端 `host_id` 和 `connection`。connection 使用下文的中心配置字段，并可通过 `ca_certificate` 指定该主机的私有 CA 文件。`profile-add` 从标准输入读取密码与口令。Linux 使用 Secret Service，Windows 使用 DPAPI，macOS 使用原生 Keychain；Unix 私有文件模式仅用于隔离测试。
+
+安装实例包含 `id`、`profile`、`plan`、`product`、`target`、`channel`，以及可选的本地 `adapter` 和 `auto_update`。adapter 是本地绝对可执行路径、参数数组和超时。发布物提供文件与签名，执行权限由本机注册提供。`node sync` 执行一次自动更新；`node watch` 周期跟踪启用了 `auto_update` 的对象。PAUH 由原有 Core 维护时钟触发，保持唯一调度者。
+
+`node export` 导出原始签名和文件摘要；`node stage --offline <bundle>` 从离线包暂存，后续 prepare/apply 无需服务端或 Redis。`node self-source --profile <id>` 选择 GESAC 自身更新来源；下文独立启动器负责核心的自更新与失败恢复。服务主机通过 `publish-self` 发布与其签名密钥绑定的自更新制品。
+
+`gesac uninstall` 使用独立清理进程移除该节点的配置、凭据、数据库、缓存与安装内容。正在执行或结果未决的更新先完成核对。由 GESAC 管理的软件、用户数据以及独立服务主机的业务数据库保留各自的生命周期。
 
 ## 安装并连接你的中心
 

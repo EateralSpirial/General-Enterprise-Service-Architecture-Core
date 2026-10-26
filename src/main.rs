@@ -13,6 +13,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Run an independent account and software service host.
+    Server {
+        #[command(subcommand)]
+        command: gesac::commands::ServerCommand,
+    },
+    /// Manage multiple service hosts, plans and local software instances.
+    Node {
+        #[command(subcommand)]
+        command: gesac::commands::NodeCommand,
+    },
+    /// Remove this node and its own configuration through an independent cleaner.
+    Uninstall,
+    #[command(name = "__remove-node", hide = true)]
+    RemoveNode { root: PathBuf, device: String },
     /// Configure the central service and vault through interactive prompts.
     Init,
     /// Install the independent launcher from the matching distribution directory.
@@ -64,6 +78,34 @@ fn emit(command: &str, result: Value) {
 }
 
 fn run(cli: Cli) -> Result<()> {
+    let cli = match cli.command {
+        Command::Server { command } => {
+            emit("server", gesac::commands::server(command)?);
+            return Ok(());
+        }
+        Command::Node { command } => {
+            emit(
+                "node",
+                gesac::commands::node(command, &config::home_dir()?)?,
+            );
+            return Ok(());
+        }
+        Command::Uninstall => {
+            emit(
+                "uninstall",
+                gesac::commands::node(
+                    gesac::commands::NodeCommand::Uninstall,
+                    &config::home_dir()?,
+                )?,
+            );
+            return Ok(());
+        }
+        Command::RemoveNode { root, device } => {
+            gesac::node::uninstall::clean(&root, &device)?;
+            return Ok(());
+        }
+        command => Cli { command },
+    };
     if matches!(cli.command, Command::Health) {
         let version = gesac::BUILD_VERSION;
         println!(
@@ -187,7 +229,12 @@ fn run(cli: Cli) -> Result<()> {
                 std::thread::sleep(Duration::from_secs(interval));
             }
         }
-        Command::Protocol { .. } | Command::Health => unreachable!(),
+        Command::Protocol { .. }
+        | Command::Health
+        | Command::Node { .. }
+        | Command::Server { .. }
+        | Command::Uninstall
+        | Command::RemoveNode { .. } => unreachable!(),
     }
     Ok(())
 }

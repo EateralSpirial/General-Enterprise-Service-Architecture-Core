@@ -943,6 +943,7 @@ mod tests {
             channel: "stable".into(),
             allow_http_loopback: false,
             credential_store: "os".into(),
+            ca_certificate: None,
         }
     }
     fn initial_state() -> State {

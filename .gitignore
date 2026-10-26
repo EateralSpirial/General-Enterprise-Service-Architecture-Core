@@ -149,4 +149,6 @@ __pycache__/
 /.gesac/
 /demo-state/
 /test-results/
+/.tmp/
+/private/
 *.secret

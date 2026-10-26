@@ -1,7 +1,6 @@
 name: gesac CLI prototype
 on:
   push:
-    branches: [main]
     paths: ['Cargo.*', 'src/**', 'tests/**', 'tools/**', '.github/workflows/cli.yml']
   pull_request:
     paths: ['Cargo.*', 'src/**', 'tests/**', 'tools/**', '.github/workflows/cli.yml']
@@ -16,11 +15,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.93.0
         with:
           components: rustfmt, clippy
       - run: cargo fmt --check
@@ -39,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.93.0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -48,3 +47,4 @@ jobs:
       - run: cargo build --locked
       - run: python -m unittest discover -s tools -p 'test_*.py' -v
       - run: python tools/e2e.py --bin target/debug/gesac --launcher target/debug/gesac-launcher
+      - run: python tools/runtime_e2e.py --bin target/debug/gesac --redis /usr/bin/redis-server

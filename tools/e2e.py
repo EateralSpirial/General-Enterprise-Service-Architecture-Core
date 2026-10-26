@@ -72,7 +72,7 @@ def main():
         shutil.copy2(launcher, dist / "gesac-launcher")
         candidates = []
         try:
-            for version in ("0.1.1", "0.1.2"):
+            for version in ("0.2.1", "0.2.2"):
                 env = dict(build_env, GESAC_RELEASE_VERSION=version)
                 subprocess.run([cargo, "build", "--locked", "--bin", "gesac"], cwd=repo, env=env, check=True, stdout=subprocess.DEVNULL)
                 dest = root / f"core-{version}"
@@ -122,11 +122,11 @@ def main():
             run("install")
             run("install")  # repair/reinstall independent launcher atomically
             installed = home / "bin/gesac"
-            assert run("__health", executable=installed)["version"] == "0.1.0"
+            assert run("__health", executable=installed)["version"] == "0.2.0"
             assert run("login")["authenticated"]
             record("external-config-hidden-secrets-and-independent-launcher")
 
-            first = center.publish(candidates[0], 1, "0.1.1", "linux-x86_64", evidence(candidates[0]))
+            first = center.publish(candidates[0], 1, "0.2.1", "linux-x86_64", evidence(candidates[0]))
             assert run("check")["available"]
             watcher = subprocess.Popen([str(installed), "watch", "--interval", "5"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             # A 25-second deadline prevents a broken watch command hanging CI.
@@ -135,9 +135,9 @@ def main():
             selector.register(watcher.stdout, selectors.EVENT_READ)
             assert selector.select(25), "watch did not complete its first update"
             first_tick=json.loads(watcher.stdout.readline())
-            assert first_tick["ok"] and first_tick["version"]=="0.1.0"
+            assert first_tick["ok"] and first_tick["version"]=="0.2.0"
             selector.close()
-            assert run("__health", executable=installed)["version"] == "0.1.1"
+            assert run("__health", executable=installed)["version"] == "0.2.1"
             assert watcher.poll() is None
             record("signed-real-core-update-and-new-invocation-switch")
 
@@ -145,16 +145,16 @@ def main():
             assert run("check")["available"] is False
             record("revoked-session-reauthenticates-once")
 
-            second = center.publish(candidates[1], 2, "0.1.2", "linux-x86_64", evidence(candidates[1]))
+            second = center.publish(candidates[1], 2, "0.2.2", "linux-x86_64", evidence(candidates[1]))
             assert run("update")["updated"]
-            assert run("__health", executable=installed)["version"] == "0.1.2"
+            assert run("__health", executable=installed)["version"] == "0.2.2"
             assert watcher.poll() is None
             selector=selectors.DefaultSelector()
             selector.register(watcher.stdout, selectors.EVENT_READ)
             assert selector.select(16), "old process did not complete its next poll"
             next_tick=json.loads(watcher.stdout.readline())
             selector.close()
-            assert next_tick["ok"] and next_tick["version"]=="0.1.0"
+            assert next_tick["ok"] and next_tick["version"]=="0.2.0"
             assert run("update")["updated"] is False
             assert run("verify")["verified"]
             record("second-update-idempotency-integrity-and-running-old-process")
@@ -163,9 +163,9 @@ def main():
             watcher = None
 
             run("rollback")
-            assert run("__health", executable=installed)["version"] == "0.1.1"
+            assert run("__health", executable=installed)["version"] == "0.2.1"
             retry = subprocess.run([str(core), "watch", "--once"], env=env, capture_output=True, text=True, timeout=25)
-            assert state()["active"]["version"] == "0.1.1"
+            assert state()["active"]["version"] == "0.2.1"
             assert state()["highest_sequence"] == 2
             record("manual-rollback-survives-next-watch-and-keeps-high-watermark")
 
@@ -182,8 +182,8 @@ def main():
 
             third = center.publish(bad, 3, "0.1.3", "linux-x86_64", evidence(bad))
             run("update", ok=False)
-            assert state()["active"]["version"] == "0.1.1"
-            assert run("__health", executable=installed)["version"] == "0.1.1"
+            assert state()["active"]["version"] == "0.2.1"
+            assert run("__health", executable=installed)["version"] == "0.2.1"
             run("update", ok=False)
             record("failed-health-keeps-previous-core-and-quarantines-candidate")
 
@@ -195,14 +195,14 @@ def main():
             current["pending"] = {"from": current["active"], "candidate": candidate, "phase": "activated"}
             current["active"] = candidate
             _write(state_path, _json(current))
-            assert run("__health", executable=installed)["version"] == "0.1.1"
+            assert run("__health", executable=installed)["version"] == "0.2.1"
             assert state()["pending"] is None and state()["highest_sequence"] == 3
             record("interrupted-activation-journal-recovers-offline")
 
             active = state()["active"]
             damaged = home / "releases" / active["sha256"] / "gesac-core"
             damaged.write_bytes(b"damaged executable")
-            assert run("__health", executable=installed)["version"] == "0.1.0"
+            assert run("__health", executable=installed)["version"] == "0.2.0"
             assert state()["highest_sequence"] == 3
             record("corrupt-active-core-falls-back-to-independent-bootstrap")
 

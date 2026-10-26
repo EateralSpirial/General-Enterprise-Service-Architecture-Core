@@ -173,6 +173,7 @@ mod tests {
             channel: "stable".into(),
             allow_http_loopback: false,
             credential_store: "file".into(),
+            ca_certificate: None,
         };
         let mut record = StoredSession {
             binding: config.binding().unwrap(),

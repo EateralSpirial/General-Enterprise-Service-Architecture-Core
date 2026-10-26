@@ -15,6 +15,20 @@ use zeroize::Zeroize;
 const MAX_CONFIG_BYTES: u64 = 32 * 1024;
 const MAX_SECRET_BYTES: u64 = 64 * 1024;
 
+#[cfg(target_os = "linux")]
+fn secret_tool() -> std::ffi::OsString {
+    if let Some(path) = std::env::var_os("GESAC_SECRET_TOOL") {
+        return path;
+    }
+    if let Ok(home) = home_dir() {
+        let bundled = home.join("bin/secret-tool");
+        if bundled.is_file() {
+            return bundled.into_os_string();
+        }
+    }
+    "secret-tool".into()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -28,6 +42,8 @@ pub struct Config {
     pub allow_http_loopback: bool,
     #[serde(default = "default_store")]
     pub credential_store: String,
+    #[serde(default)]
+    pub ca_certificate: Option<PathBuf>,
 }
 
 fn default_channel() -> String {
@@ -122,11 +138,20 @@ impl Config {
 
     pub fn client(&self) -> Result<reqwest::blocking::Client> {
         self.validate()?;
-        reqwest::blocking::Client::builder()
+        let mut builder = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(5))
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent("gesac-prototype/0.1")
+            .user_agent("gesac/0.2");
+        if let Some(path) = &self.ca_certificate {
+            ensure!(
+                path.is_absolute() && fs::metadata(path)?.len() <= 256 * 1024,
+                "invalid CA certificate path"
+            );
+            builder =
+                builder.add_root_certificate(reqwest::Certificate::from_pem(&fs::read(path)?)?);
+        }
+        builder
             .build()
             .map_err(|_| anyhow!("Unable to initialize HTTPS client"))
     }
@@ -215,6 +240,7 @@ pub fn initialize(home: &Path) -> Result<()> {
         } else {
             selected_store
         },
+        ca_certificate: None,
     };
     config.validate()?;
     configure_credentials(home, &config)?;
@@ -316,7 +342,7 @@ pub(crate) fn store_secret(
     }
     #[cfg(target_os = "linux")]
     {
-        let mut command = Command::new("secret-tool");
+        let mut command = Command::new(secret_tool());
         command.args([
             "store",
             "--label=GESAC CLI",
@@ -337,7 +363,11 @@ pub(crate) fn store_secret(
         let encrypted = windows_protect(bytes, true)?;
         write_private_file(&secret_path(home, config, purpose)?, &encrypted)
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
+    {
+        crate::keychain::store(&secret_id(home, config, purpose)?, bytes)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         bail!(
             "OS vault adapter is available on Linux and Windows; Unix development supports explicit file mode"
@@ -364,7 +394,7 @@ pub(crate) fn read_secret(home: &Path, config: &Config, purpose: &str) -> Result
     }
     #[cfg(target_os = "linux")]
     {
-        let mut command = Command::new("secret-tool");
+        let mut command = Command::new(secret_tool());
         command.args([
             "lookup",
             "application",
@@ -394,7 +424,11 @@ pub(crate) fn read_secret(home: &Path, config: &Config, purpose: &str) -> Result
             false,
         )?))
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
+    {
+        crate::keychain::read(&secret_id(home, config, purpose)?)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         bail!("OS vault adapter is available on Linux and Windows");
     }
@@ -411,7 +445,7 @@ pub(crate) fn delete_secret(home: &Path, config: &Config, purpose: &str) -> Resu
     }
     #[cfg(target_os = "linux")]
     {
-        let mut command = Command::new("secret-tool");
+        let mut command = Command::new(secret_tool());
         command.args([
             "clear",
             "application",
@@ -426,7 +460,11 @@ pub(crate) fn delete_secret(home: &Path, config: &Config, purpose: &str) -> Resu
         );
         Ok(())
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        crate::keychain::delete(&secret_id(home, config, purpose)?)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         bail!("OS vault adapter unavailable");
     }
@@ -548,7 +586,7 @@ pub fn read_private_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
         check_private(&opened, false)?;
     }
     let mut bytes = Vec::new();
-    file.take(limit + 1).read_to_end(&mut bytes)?;
+    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
     ensure!(
         bytes.len() as u64 <= limit,
         "Private file exceeds size limit"
@@ -875,6 +913,7 @@ mod tests {
             channel: "stable".into(),
             allow_http_loopback: false,
             credential_store: "file".into(),
+            ca_certificate: None,
         }
     }
 

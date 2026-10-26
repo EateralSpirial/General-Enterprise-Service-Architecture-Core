@@ -25,6 +25,16 @@ impl Node {
         Ok(())
     }
     pub fn schedule_uninstall(&self) -> Result<Value> {
+        let _self_update = if self.root.join("update.lock").exists() {
+            let lock = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(self.root.join("update.lock"))?;
+            lock.try_lock_exclusive().context("self-update is active")?;
+            Some(lock)
+        } else {
+            None
+        };
         let unresolved:u32=self.db.query_row("SELECT COUNT(*) FROM operations WHERE status NOT IN ('applied','rolled_back','cancelled') OR (json_extract(body,'$.online')=1 AND json_extract(body,'$.reported')=0)",[],|r|r.get(0))?;
         ensure!(
             unresolved == 0,

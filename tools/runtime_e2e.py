@@ -90,6 +90,8 @@ def main():
             identity = run("server", "init", "--root", server_root, "--listen", f"127.0.0.1:{server_port}", "--redis-config", redis_config, stdin=creds)
             run("server", "plan", "--root", server_root, "--id", "tools", "--file", write(root / f"plan{index}.json", {"name": "Tools"}))
             run("server", "grant", "--root", server_root, "--account", "owner", "--plan", "tools")
+            run("server", "plan", "--root", server_root, "--id", "gesac", "--file", root / f"plan{index}.json")
+            run("server", "grant", "--root", server_root, "--account", "owner", "--plan", "gesac")
             proc = spawn([str(binary), "server", "serve", "--root", str(server_root)])
             wait(f"http://127.0.0.1:{server_port}/health")
             profile = {"id": f"host{index}", "host_id": identity["host_id"], "connection": {
@@ -196,6 +198,22 @@ def main():
         assert count.read_text() == "executed"
         assert run("node", "reconcile", "--operation", uncertain["id"], home=home)["status"] == "applied"
         passed.append("unknown execution reconciles without replay")
+
+        # The real service host also supplies the independent launcher's self-update protocol.
+        artifact_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
+        self_release = {"schema": 1, "sequence": 1, "version": "0.2.0", "channel": "stable", "target": "linux-x86_64",
+                        "artifact": "/artifacts/" + artifact_hash, "sha256": artifact_hash, "size": binary.stat().st_size,
+                        "expires_at": int(time.time()) + 3600, "protocol": 1, "contract_epoch": 1, "supports_contracts": [1],
+                        "iteration": {"candidate_id": "runtime-self-update", "source_revision": "a" * 40, "artifact_sha256": artifact_hash,
+                                      "change_summary": "isolated self-update fixture", "risk": "low", "tests": [{"name": "runtime", "passed": True, "evidence_sha256": "b" * 64}],
+                                      "approval": {"decision": "approved", "actor": "test", "policy": "automatic-low-risk"},
+                                      "rollback": "retained bootstrap", "migration": {"kind": "none", "reversible": True}, "protected_core_changed": False}}
+        run("server", "publish-self", "--root", hosts[0][0], "--file", write(root / "self-release.json", self_release), "--binary", binary)
+        run("node", "self-source", "--profile", "host0", home=home)
+        assert run("update", home=home)["updated"]
+        assert run("verify", home=home)["verified"]
+        assert run("update", home=home)["reason"] == "already_current"
+        passed.append("service-host self-update, offline verification and duplicate suppression")
 
         run("uninstall", home=home)
         for _ in range(100):

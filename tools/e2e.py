@@ -81,7 +81,7 @@ def main():
         finally:
             subprocess.run([cargo, "build", "--locked"], cwd=repo, env=build_env, check=True, stdout=subprocess.DEVNULL)
         bad_source = root / "unhealthy.rs"
-        bad_source.write_text('fn main() { println!("{}", r#"{"healthy":false,"protocol":1,"version":"0.1.3","target":"linux-x86_64"}"#); }')
+        bad_source.write_text('fn main() { println!("{}", r#"{"healthy":false,"protocol":1,"version":"0.2.3","target":"linux-x86_64"}"#); }')
         bad = root / "unhealthy"
         subprocess.run([rustc, str(bad_source), "-o", str(bad)], check=True)
         center = DemoCenter.init(root / "center", "synthetic-account", "synthetic-password", "synthetic-passphrase")
@@ -174,13 +174,13 @@ def main():
             run("check", ok=False)
             _write(release_path, _json(first))
             run("check", ok=False)
-            for change in ({"expires_at": 1}, {"target": "windows-x86_64"}, {"artifact": "//evil.invalid/payload"}, {"contract_epoch": 4, "supports_contracts": [4]}, {"sequence": 2, "version": "0.1.9"}):
+            for change in ({"expires_at": 1}, {"target": "windows-x86_64"}, {"artifact": "//evil.invalid/payload"}, {"contract_epoch": 4, "supports_contracts": [4]}, {"sequence": 2, "version": "0.2.9"}):
                 _write(release_path, _json(signed_variant(second, **change)))
                 run("check", ok=False)
             _write(release_path, _json(second))
             record("rejects-signature-replay-expiry-target-origin-contract-and-sequence-attacks")
 
-            third = center.publish(bad, 3, "0.1.3", "linux-x86_64", evidence(bad))
+            third = center.publish(bad, 3, "0.2.3", "linux-x86_64", evidence(bad))
             run("update", ok=False)
             assert state()["active"]["version"] == "0.2.1"
             assert run("__health", executable=installed)["version"] == "0.2.1"

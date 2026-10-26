@@ -36,7 +36,11 @@ pub fn project(
     status: &str,
 ) -> Result<()> {
     let terminal = ["applied", "rolled_back", "cancelled"].contains(&status);
-    let _:i32=redis::Script::new("local v=redis.call('GET',KEYS[1]);if v and v~=ARGV[1] then return 0 end;redis.call('SET',KEYS[2],ARGV[2],'EX',2592000);if ARGV[3]=='1' then redis.call('DEL',KEYS[1]) else redis.call('SET',KEYS[1],ARGV[1],'EX',86400) end;return 1")
+    let result:i32=redis::Script::new("local v=redis.call('GET',KEYS[1]);if v and v~=ARGV[1] then return 0 end;redis.call('SET',KEYS[2],ARGV[2],'EX',2592000);if ARGV[3]=='1' then redis.call('DEL',KEYS[1]) else redis.call('SET',KEYS[1],ARGV[1],'EX',86400) end;return 1")
         .key(key(host,account,device,instance)).key(format!("gesac:{host}:operation:{id}")).arg(id).arg(status).arg(if terminal{"1"}else{"0"}).invoke(&mut connection(url)?)?;
+    ensure!(
+        result == 1,
+        "coordination ownership requires reconciliation"
+    );
     Ok(())
 }

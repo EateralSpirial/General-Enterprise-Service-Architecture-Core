@@ -126,6 +126,7 @@ impl Node {
             _ => "unknown",
         }
         .into();
+        op.reported = false;
         self.save(&op)?;
         let result = if let Some(adapter) = &instance.adapter {
             adapter.call(&json!({"schema":1,"action":action,"operation":op.id,"instance":op.instance,"release_id":op.release_id,"release":op.release,"directory":op.directory}))

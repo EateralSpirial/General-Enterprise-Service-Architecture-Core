@@ -33,6 +33,7 @@ fn otp(seed: &str, counter: u64) -> Result<u32> {
     let offset = (hash[19] & 15) as usize;
     Ok((u32::from_be_bytes(hash[offset..offset + 4].try_into()?) & 0x7fffffff) % 1_000_000)
 }
+
 impl Service {
     pub(super) fn login(&mut self, body: &[u8]) -> Result<(StatusCode, Value)> {
         let value: Value = serde_json::from_slice(body)?;
@@ -103,5 +104,18 @@ impl Service {
             StatusCode::OK,
             json!({"access_token":token,"expires_at":expiry}),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn otp_matches_rfc4226_vectors() {
+        let seed = "3132333435363738393031323334353637383930";
+        validate_seed(seed).unwrap();
+        assert_eq!(otp(seed, 0).unwrap(), 755224);
+        assert_eq!(otp(seed, 1).unwrap(), 287082);
+        assert!(validate_seed("invalid").is_err());
     }
 }

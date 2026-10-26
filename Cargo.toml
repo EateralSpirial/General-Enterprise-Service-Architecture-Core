@@ -20,6 +20,7 @@ name = "gesac-launcher"
 path = "src/bin/gesac-launcher.rs"
 
 [dependencies]
+aes-gcm = "0.10"
 anyhow = "1"
 axum = "0.8.8"
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }

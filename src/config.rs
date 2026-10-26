@@ -100,12 +100,12 @@ impl Config {
             "Invalid release channel"
         );
         ensure!(
-            matches!(self.credential_store.as_str(), "os" | "file"),
-            "Credential store must be os or file"
+            matches!(self.credential_store.as_str(), "os" | "file" | "sealed"),
+            "Credential store must be os, sealed or development file"
         );
         #[cfg(not(unix))]
         ensure!(
-            self.credential_store == "os",
+            self.credential_store == "os" || self.credential_store == "sealed",
             "File credentials are available only on Unix development hosts"
         );
         let url = Url::parse(&self.center_url).context("Invalid center URL")?;
@@ -326,6 +326,13 @@ pub(crate) fn store_secret(
     bytes: &[u8],
 ) -> Result<()> {
     ensure_private_dir(home)?;
+    if config.credential_store == "sealed" {
+        let id = secret_id(home, config, purpose)?;
+        return write_private_file(
+            &secret_path(home, config, purpose)?,
+            &crate::sealed::seal(home, &id, bytes)?,
+        );
+    }
     ensure!(
         bytes.len() as u64 <= MAX_SECRET_BYTES,
         "Secret record too large"
@@ -377,6 +384,17 @@ pub(crate) fn store_secret(
 
 pub(crate) fn read_secret(home: &Path, config: &Config, purpose: &str) -> Result<Option<Vec<u8>>> {
     ensure_private_dir(home)?;
+    if config.credential_store == "sealed" {
+        let path = secret_path(home, config, purpose)?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        return Ok(Some(crate::sealed::open(
+            home,
+            &secret_id(home, config, purpose)?,
+            &read_private_file(&path, MAX_SECRET_BYTES + 64)?,
+        )?));
+    }
     if config.credential_store == "file" {
         #[cfg(unix)]
         {
@@ -435,7 +453,7 @@ pub(crate) fn read_secret(home: &Path, config: &Config, purpose: &str) -> Result
 }
 
 pub(crate) fn delete_secret(home: &Path, config: &Config, purpose: &str) -> Result<()> {
-    if config.credential_store == "file" || cfg!(windows) {
+    if config.credential_store == "file" || config.credential_store == "sealed" || cfg!(windows) {
         let path = secret_path(home, config, purpose)?;
         match fs::remove_file(path) {
             Ok(()) => return Ok(()),

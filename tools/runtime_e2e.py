@@ -36,14 +36,16 @@ def main():
     parser.add_argument("--redis", required=True, type=Path)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
-    binary, redis = args.bin.resolve(), args.redis.resolve()
+    # Redis distributions use an argv[0]-selected multicall executable behind this symlink.
+    binary, redis = args.bin.resolve(), args.redis.absolute()
     passed = []
     with tempfile.TemporaryDirectory(prefix="gesac-runtime-") as temp, contextlib.ExitStack() as stack:
         root = Path(temp)
         processes = []
 
         def spawn(command, **kwargs):
-            proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, **kwargs)
+            log = stack.enter_context(open(root / f"process-{len(processes)}.log", "w+"))
+            proc = subprocess.Popen(command, stdout=log, stderr=log, start_new_session=True, **kwargs)
             processes.append(proc)
             return proc
 
@@ -65,6 +67,9 @@ def main():
             proc = subprocess.run([str(binary), *map(str, command)], input=json.dumps(stdin) if stdin is not None else None,
                                   text=True, capture_output=True, env=env, timeout=120)
             if ok:
+                if proc.returncode:
+                    for log in root.glob("process-*.log"):
+                        print(log.name, log.read_text()[-3000:], file=sys.stderr)
                 assert proc.returncode == 0, (command, proc.stderr)
                 return json.loads(proc.stdout)["result"]
             assert proc.returncode != 0, command
@@ -82,7 +87,15 @@ def main():
         redis_port = port()
         redis_args = [str(redis), "--bind", "127.0.0.1", "--port", str(redis_port), "--save", "", "--appendonly", "no"]
         redis_proc = spawn(redis_args)
-        time.sleep(.2)
+        for _ in range(100):
+            try:
+                with socket.create_connection(("127.0.0.1", redis_port), timeout=.2):
+                    break
+            except OSError:
+                assert redis_proc.poll() is None, "Redis server exited during startup"
+                time.sleep(.05)
+        else:
+            raise AssertionError("Redis server did not become ready")
         redis_config = write(root / "redis.json", {"url": f"redis://127.0.0.1:{redis_port}/"})
         hosts = []
         for index in range(2):

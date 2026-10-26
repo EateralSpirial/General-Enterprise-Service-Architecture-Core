@@ -405,7 +405,12 @@ PRAGMA user_version=1;")?;
             .redis_url
             .as_deref()
             .context("online coordination requires Redis")?;
-        coordination::claim(redis, &self.config.host_id, account, device, instance, id)?;
+        coordination::claim(redis, &self.config.host_id, account, device, instance, id)
+            .inspect_err(|error| {
+                if std::env::var_os("GESAC_COORDINATION_DIAGNOSTICS").is_some() {
+                    eprintln!("GESAC coordination: {error}");
+                }
+            })?;
         tx.execute(
             "INSERT INTO operations VALUES (?1,?2,?3,?4,?5,'reserved','{}',?6)",
             params![

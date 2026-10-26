@@ -27,7 +27,7 @@ gesac node verify --instance <instance-id> --version <version>
 gesac node reconcile --operation <operation-id>
 ```
 
-每个主机 profile 包含独立 `id`、服务端 `host_id` 和 `connection`。connection 使用下文的中心配置字段，并可通过 `ca_certificate` 指定该主机的私有 CA 文件。`profile-add` 从标准输入读取密码与口令。Linux 使用 Secret Service，Windows 使用 DPAPI，macOS 使用原生 Keychain；Unix 私有文件模式仅用于隔离测试。
+每个主机 profile 包含独立 `id`、服务端 `host_id` 和 `connection`。connection 使用下文的中心配置字段，并可通过 `ca_certificate` 指定该主机的私有 CA 文件。`profile-add` 从标准输入读取密码与口令。Linux 使用 Secret Service，Windows 使用 DPAPI，macOS 使用原生 Keychain；无可用系统密钥环的后台节点可显式选择 `sealed`：AES-256-GCM 加密凭据，包装密钥由本机私有目录和 ACL 保护；当前操作系统用户属于信任边界。Unix 明文文件模式仅用于隔离测试。
 
 安装实例包含 `id`、`profile`、`plan`、`product`、`target`、`channel`，以及可选的本地 `adapter` 和 `auto_update`。adapter 是本地绝对可执行路径、参数数组和超时。发布物提供文件与签名，执行权限由本机注册提供。`node sync` 执行一次自动更新；`node watch` 周期跟踪启用了 `auto_update` 的对象。PAUH 由原有 Core 维护时钟触发，保持唯一调度者。
 

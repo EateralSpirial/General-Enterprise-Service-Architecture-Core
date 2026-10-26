@@ -7,6 +7,7 @@ mod keychain;
 pub mod node;
 pub mod protocol;
 pub mod runtime;
+mod sealed;
 pub mod server;
 pub mod update;
 

@@ -29,11 +29,9 @@ pub fn write_secret(path: &Path, bytes: &[u8]) -> Result<()> // GATE
 #[cfg(windows)] // GATE: native current-user session protection
 pub fn read_secret(path: &Path) -> Result<Vec<u8>> // GATE
 {
-    Ok(windows_dpapi::decrypt_data(
-        &fs::read(path)?,
-        windows_dpapi::Scope::User,
-        None,
-    )?) // GATE
+    let bytes = fs::read(path)?;
+    let plain = windows_dpapi::decrypt_data(&bytes, windows_dpapi::Scope::User, None)?; // GATE
+    Ok(plain)
 }
 
 pub fn install(path: &Path, release: &Release) -> Result<bool> // GATE

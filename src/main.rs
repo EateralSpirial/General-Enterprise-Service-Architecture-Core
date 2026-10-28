@@ -1,204 +1,96 @@
-use anyhow::{ensure, Context, Result};
+mod admin;
+mod client;
+mod model;
+mod server;
+
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use gesac::{auth, config, protocol, update};
-use serde_json::{json, Value};
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name="gesac", version=gesac::BUILD_VERSION, about="GESAC verifiable update protocol prototype")]
+#[command(name = "gesac", version, about = "Enterprise software delivery")]
 struct Cli {
+    #[arg(long, env = "GESAC_ENTERPRISE_HOME", global = true)]
+    home: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Configure the central service and vault through interactive prompts.
-    Init,
-    /// Install the independent launcher from the matching distribution directory.
-    Install,
-    /// Authenticate with the credentials stored outside the command line.
-    Login,
-    /// Replace saved password and passphrase through hidden prompts.
-    Credentials,
-    /// Remove the locally cached session.
-    Logout,
-    /// Show installed versions and update state, without secrets.
-    Status,
-    /// Check signed release metadata and deterministic iteration gates.
-    Check,
-    /// Stage, verify, health-check and activate the latest release.
-    Update,
-    /// Restore the previous verified local executable.
-    Rollback,
-    /// Recover an interrupted activation using retained local binaries.
-    Recover,
-    /// Recompute hashes of retained executables and validate local state.
-    Verify,
-    /// Poll the center; transient failures leave the active version available.
-    Watch {
-        #[arg(long, default_value_t=60, value_parser=clap::value_parser!(u64).range(5..=86400))]
-        interval: u64,
+    Configure {
         #[arg(long)]
-        once: bool,
+        host: String,
     },
-    /// Validate an iteration evidence file without downloading or executing code.
-    Protocol {
-        file: PathBuf,
-        #[arg(long, default_value_t = 1)]
-        sequence: u64,
-        #[arg(long, default_value_t = 1)]
-        epoch: u32,
-        #[arg(long, value_delimiter = ',', default_value = "1")]
-        supports: Vec<u32>,
+    Login {
+        #[arg(long)]
+        account: Option<String>,
+        #[arg(long)]
+        credentials_stdin: bool,
     },
-    #[command(name = "__health", hide = true)]
-    Health,
+    Logout,
+    Software,
+    Select {
+        product: String,
+    },
+    Install {
+        product: String,
+    },
+    Reconcile {
+        product: String,
+        #[arg(long, value_parser = ["installed", "failed"])] // GATE
+        outcome: String,
+        #[arg(long)]
+        reason: String,
+    },
+    AutoUpdate {
+        product: String,
+        #[arg(value_parser = ["enable", "disable"])] // GATE: supported task actions
+        action: String,
+    },
+    Sync,
+    Status,
+    Run {
+        product: String,
+    },
+    Server {
+        #[arg(long)]
+        root: PathBuf,
+        #[arg(long, default_value = "127.0.0.1:4185")]
+        listen: String,
+        #[arg(long, default_value = "https://yanhan.chat/gesa/api/")]
+        public_url: String,
+    },
+    Admin {
+        #[arg(long)]
+        root: PathBuf,
+        #[command(subcommand)]
+        command: admin::Command,
+    },
 }
 
-fn emit(command: &str, result: Value) {
-    println!(
-        "{}",
-        json!({"schema":1,"ok":true,"version":gesac::BUILD_VERSION,"command":command,"result":result})
-    );
-}
-
-fn run(cli: Cli) -> Result<()> {
-    if matches!(cli.command, Command::Health) {
-        let version = gesac::BUILD_VERSION;
-        println!(
-            "{}",
-            json!({"healthy":true,"protocol":1,"version":version,"target":format!("{}-{}",std::env::consts::OS,std::env::consts::ARCH)})
-        );
-        return Ok(());
-    }
-    if let Command::Protocol {
-        file,
-        sequence,
-        epoch,
-        supports,
-    } = cli.command
+fn main() // GATE
+{
+    if let Err(error) = run()
+    // GATE: unified actionable failure boundary
     {
-        ensure!(
-            std::fs::metadata(&file)?.len() <= 256 * 1024,
-            "iteration file too large"
-        );
-        let value =
-            serde_json::from_slice(&std::fs::read(file)?).context("invalid iteration JSON")?;
-        protocol::validate(&value, sequence, epoch, &supports)?;
-        emit(
-            "protocol",
-            json!({"valid":true,"sequence":sequence,"contract_epoch":epoch}),
-        );
-        return Ok(());
-    }
-    let home = config::home_dir()?;
-    match cli.command {
-        Command::Init => {
-            config::initialize(&home)?;
-            update::install_bootstrap(&home)?;
-            emit("init", json!({"configured":true,"home":home}));
-        }
-        Command::Install => {
-            update::install_bootstrap(&home)?;
-            let source = std::env::current_exe()?
-                .with_file_name(format!("gesac-launcher{}", std::env::consts::EXE_SUFFIX));
-            ensure!(source.is_file(), "Place gesac and gesac-launcher from the same distribution together, then run gesac install");
-            let bin = home.join("bin");
-            config::ensure_private_dir(&bin)?;
-            let target = bin.join(format!("gesac{}", std::env::consts::EXE_SUFFIX));
-            if let Ok(meta) = std::fs::symlink_metadata(&target) {
-                ensure!(
-                    meta.is_file() && !meta.file_type().is_symlink(),
-                    "Launcher destination must be a regular file"
-                );
-            }
-            let temporary = bin.join(format!(".launcher-{}.tmp", rand::random::<u64>()));
-            let mut input = std::fs::File::open(source)?;
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o700);
-            }
-            let installed = (|| -> Result<()> {
-                let mut output = options.open(&temporary)?;
-                config::harden_new_executable(&temporary)?;
-                std::io::copy(&mut input, &mut output)?;
-                output.sync_all()?;
-                drop(output);
-                std::fs::rename(&temporary, &target)?;
-                #[cfg(unix)]
-                std::fs::File::open(&bin)?.sync_all()?;
-                Ok(())
-            })();
-            if installed.is_err() {
-                let _ = std::fs::remove_file(&temporary);
-            }
-            installed?;
-            emit("install", json!({"launcher":target,"path_directory":bin}));
-        }
-        Command::Login => {
-            let c = config::Config::load(&home)?;
-            let session = auth::login(&home, &c)?;
-            emit(
-                "login",
-                json!({"authenticated":true,"expires_at":session.expires_at}),
-            );
-        }
-        Command::Credentials => {
-            let c = config::Config::load(&home)?;
-            config::configure_credentials(&home, &c)?;
-            emit("credentials", json!({"saved":true}));
-        }
-        Command::Logout => {
-            let c = config::Config::load(&home)?;
-            auth::logout(&home, &c)?;
-            emit("logout", json!({"local_session_removed":true}));
-        }
-        Command::Status => emit("status", update::status(&home)?),
-        Command::Verify => emit("verify", update::verify(&home)?),
-        Command::Recover => emit("recover", update::recover(&home)?),
-        Command::Rollback => emit("rollback", update::rollback(&home)?),
-        Command::Check => emit(
-            "check",
-            update::check(&home, &config::Config::load(&home)?)?,
-        ),
-        Command::Update => emit(
-            "update",
-            update::apply(&home, &config::Config::load(&home)?)?,
-        ),
-        Command::Watch { interval, once } => {
-            loop {
-                // Reload configuration each cycle to pick up operator changes.
-                let result = config::Config::load(&home).and_then(|c| update::apply(&home, &c));
-                match result {
-                    Ok(v) => emit("watch", v),
-                    Err(e) if once => return Err(e),
-                    Err(_) => eprintln!(
-                        "{}",
-                        json!({"schema":1,"ok":false,"command":"watch","error":{"code":"UPDATE_RETRY","message":"Update attempt failed; retained version remains available. Retry on next interval."}})
-                    ),
-                }
-                if once {
-                    break;
-                }
-                std::thread::sleep(Duration::from_secs(interval));
-            }
-        }
-        Command::Protocol { .. } | Command::Health => unreachable!(),
-    }
-    Ok(())
-}
-
-fn main() {
-    let cli = Cli::parse();
-    if let Err(error) = run(cli) {
         eprintln!(
             "{}",
-            json!({"schema":1,"ok":false,"error":{"code":"GESAC_FAILED","message":error.to_string()}})
-        );
-        std::process::exit(1);
+            serde_json::json!({"error": error.to_string(), "recovery": "Correct the reported condition, then repeat the command. For interrupted installations inspect gesac status before retrying."})
+        ); // GATE
+        std::process::exit(1); // GATE
+    }
+}
+
+fn run() -> Result<()> {
+    let cli = Cli::parse();
+    match cli.command {
+        Command::Server {
+            root,
+            listen,
+            public_url,
+        } => server::serve(root, listen, public_url),
+        Command::Admin { root, command } => admin::run(&root, command),
+        command => client::run(cli.home, command),
     }
 }

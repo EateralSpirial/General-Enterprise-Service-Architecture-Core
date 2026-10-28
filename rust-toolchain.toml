@@ -1,0 +1,4 @@
+[toolchain]
+channel = "1.93.0" # GATE: release compiler compatibility
+components = ["rustfmt", "clippy"]
+profile = "minimal"
